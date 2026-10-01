@@ -1,0 +1,1316 @@
+=== PAGE 1 ===
+ECGrecover: A Deep Learning Approach for Electrocardiogram
+Signal Completion
+Alex Lence∗
+Federica Granese∗
+Ahmad Fall∗
+alex.lence@ird.fr
+IRD, Sorbonne Université, Unité de Modélisation
+Mathématique et Informatique des Systèmes Complexes,
+UMMISCO, F-93143, Bondy, France
+Bondy, France
+Blaise Hanczar
+IBISC, University Paris-Saclay, University Evry
+Evry, France
+Joe-Elie Salem
+Clinical Investigation Center Paris-Est, CIC-1901, INSERM,
+UNICO-GRECO Cardio-Oncology Program,
+Pitié-Salpêtrière University Hospital, Sorbonne Université
+Paris, France Vanderbilt University Medical Center
+Nashville, USE
+Jean-Daniel Zucker
+Edi Prifti††
+edi.prifti@ird.fr
+IRD, Sorbonne Université, Unité de Modélisation
+Mathématique et Informatique des Systèmes Complexes,
+UMMISCO, F-93143, Bondy, France
+Bondy, France INSERM, Nutrition et Obesities; systemic
+approaches, NutriOmique, AP-HP, Hôpital
+Pitié-Salpêtrière
+Paris, France
+Abstract
+In this work, we address the challenge of reconstructing the com-
+plete 12-lead ECG signal from its incomplete parts. We focus on
+two main scenarios: (i) reconstructing missing signal segments
+within an ECG lead and (ii) recovering entire leads from signal in
+another unique lead. Two emerging clinical applications emphasize
+the relevance of our work. The first is the increasing need to digitize
+paper-stored ECGs for utilization in AI-based applications, often
+limited to digital 12 lead 10s ECGs. The second is the widespread
+use of wearable devices that record ECGs but typically capture only
+one or a few leads. In both cases, a non-negligible amount of infor-
+mation is lost or not recorded. Our approach aims to recover this
+missing signal. We propose ECGrecover, a U-Net neural network
+model trained on a novel composite objective function to address
+the reconstruction problem. This function incorporates both spatial
+and temporal features of the ECG by combining the distance in
+amplitude and sycnhronization through time between the recon-
+structed and the real digital signals. We used real-life ECG datasets
+and through comprehensive assessments compared ECGrecover
+with three state-of-the-art methods based on generative adversarial
+networks (EKGAN, Pix2Pix) as well as the CopyPaste strategy. The
+∗Equal contributions.
+†Corresponding author.
+Publication rights licensed to ACM. ACM acknowledges that this contribution was
+authored or co-authored by an employee, contractor or affiliate of a national govern-
+ment. As such, the Government retains a nonexclusive, royalty-free right to publish
+or reproduce this article, or to allow others to do so, for Government purposes only.
+Request permissions from owner/author(s).
+KDD ’25, Toronto, ON, Canada
+© 2025 Copyright held by the owner/author(s). Publication rights licensed to ACM.
+ACM ISBN 979-8-4007-1245-6/25/08
+https://doi.org/10.1145/3690624.3709405
+results demonstrated that ECGrecover consistently outperformed
+state-of-the-art methods in standard distortion metrics as well as
+in preserving critical ECG characteristics, particularly the P, QRS,
+and T wave coordinates.
+CCS Concepts
+• Computing methodologies→ Supervised learning by re-
+gression; Modeling methodologies; Artificial intelligence; •
+Applied computing→ Health informatics.
+Keywords
+Electrocardiogram; Signal Reconstruction; Generative Models; Loss
+Function; Clinical Application
+ACM Reference Format:
+Alex Lence, Federica Granese, Ahmad Fall, Blaise Hanczar, Joe-Elie Salem,
+Jean-Daniel Zucker, and Edi Prifti. 2025. ECGrecover: A Deep Learning
+Approach for Electrocardiogram Signal Completion. In Proceedings of the
+31st ACM SIGKDD Conference on Knowledge Discovery and Data Mining V.1
+(KDD ’25), August 3–7, 2025, Toronto, ON, Canada. ACM, New York, NY, USA,
+12 pages. https://doi.org/10.1145/3690624.3709405
+1 Introduction
+An electrocardiogram (ECG) is a diagnostic test broadly used to
+evaluate cardiac health. It is commonly performed by placing elec-
+trodes at specific locations on the patient’s body to capture the
+heart’s electrical signals. The thoracic electrodes (V1-V6) provide in-
+formation on the right and left ventricles, while the limb electrodes
+(I, II, III, aVR, aVL, aVF) offer insights into the heart’s electrical
+signals in various spatial directions [22]. Healthcare professionals
+can effectively diagnose and assess cardiac conditions by leveraging
+2359
+
+=== PAGE 2 ===
+KDD ’25, August 3–7, 2025, Toronto, ON, Canada Alex Lence et al.
+Figure 1: Example of a 12-lead ECG. The machine has
+recorded a 10-second complete recording for all 12 leads,
+but in the PDF and paper printed format, only 2.5 seconds
+are kept for all the leads, in addition to the complete copy of
+lead II. This is illustrated by the configuration C3 in fig. 2).
+the combined information obtained from these electrodes. However,
+depending on the specific lead under examination, certain diseases
+may manifest with varied expressions on an ECG. For instance,
+when myocardial infarction occurs in the inferior part of the heart,
+it produces alterations on the ECG signal that are more visible in
+the leads II, aVF, and III 1.
+While a comprehensive disease diagnosis requires all the leads
+(in most cases, 12), novel technological advancements have revolu-
+tionized how individuals monitor their health. ECGs are frequently
+recorded with wearable devices for longer periods (in contrast with
+the classical clinical exam, which lasts 10-30 seconds). However,
+such devices measure only one or a few leads in the best cases, e.g.,
+certain smartwatches can record and transmit a single-lead ECG,
+equivalent to lead I [32].
+Moreover, despite the ongoing shift towards AI and automated
+ECG analyses, the majority of healthcare establishments around
+the world, particularly in developing countries, still rely on paper to
+record and store ECG [34]. This poses obvious accessibility issues
+and makes computer-based analyses especially challenging. In the
+most common formats, each lead is only partially represented (i.e.,
+only 2.5 or 5 seconds). Although several tools exist [19] to digitize
+the ECG stored on paper, they cannot compensate for the missing
+signal. Relying on a partial signal for a medical assessment can lead
+to even more catastrophic consequences. For example, QT alteration
+involves fluctuations in the duration of the QT interval. Analyzing
+a longer segment may provide a clearer picture of QT alteration and
+other subtle changes that might not be visible in shorter segments.
+Conditions such as bradycardia or extrasystoles require practition-
+ers to analyze more than three heartbeats to determine the presence
+of the pathology. The significance of QT alterations lies in its asso-
+ciation with an increased risk of ventricular arrhythmias, including
+Torsades-de-Pointes (TdP), which can degenerate into potentially
+life-threatening ventricular fibrillation [7, 23, 27]
+Consequently, reconstructing missing portions of an ECG signal,
+whether it involves an entire lead or part of it, is a challenging task
+with implications for both the medical field and computer science.
+To approach this problem, we formally define it and address it
+1https://ecgwaves.com/topic/localization-localize-myocardial-infarction-ischemia-
+coronary-artery-occlusion-culprit-stemi/
+from two perspectives: ECG lead-reconstruction and ECG segment
+recovery. In ECG lead reconstruction, the purpose is to reconstruct
+the 11 missing leads using the full trace of only one lead, while for
+ECG segment recovery, the goal is to recover the entire 10-second
+signal for all the leads from only partial existing segments.
+In Figure 1, we show a 12-lead ECG recorded in paper format.
+The recordings from the various leads are concatenated according
+to the standard 3x4 printing format (3 partial channels with 4 partial
+leads each, starting with lead I, followed by leads aVR, V1, and V4,
+and a fourth channel containing a complete lead, either lead II or
+I). Lastly, the reference pulses are used for amplitude calibration
+at the beginning of each row. We proposed a masking approach
+involving specific masks to replicate real-life scenarios like those
+illustrated in Figure 1. Given a 12-lead ECG input, the masks are
+functions that return the same signal, with parts of it replaced by
+random values drawn from a uniform distribution. For instance,
+the 3x4 format corresponds to the C3 mask in Figure 2, where the
+portion of the signal retained is in green, which we refer to as the
+primer.
+Our approach involved developing a U-Net-like neural network
+model, trained with a novel original objective function, combining
+the mean squared error loss with the Pearson correlation loss. The
+former serves to guide the model in preserving the magnitude
+of the original ECG signal, while the latter allows the model to
+maintain synchronization with the original signal. We named this
+approach ECGrecover. The final model was trained on a dataset
+comprising 4498 real-life 12-lead, 10-second ECGs from a cohort of
+990 healthy volunteers [27] who were administered 80mg of Sotalol,
+a QT prolonging drug. During training, all the masks depicted
+in Figure 1 were applied to each ECG of the dataset. However, each
+mask was applied separately to the testing set during the evaluation.
+The main contributions of this work are threefold:
+(1) We identified 17 realistic scenarios where ECG signals
+may be partially available. Our analysis differentiates between
+two cases: reconstructing missing segments within an ECG lead
+and reconstructing the entire set of 12 leads from one single lead. In
+addition, a formal definition of the problem is provided (Section 2.1).
+(2) We introduce ECGrecover2, a U-Net model for segment-recovery
+and lead-reconstruction tasks. ECGrecover is trained with a
+novel objective function combining the mean squared error
+and the Pearson correlation to ensure the reconstructed sig-
+nal matches the original in amplitude and preserves synchronized
+waveform patterns, crucial for clinical applications (Section 2.2).
+(3) In close collaboration with expert cardiologists, we ex-
+tensively evaluated ECGrecover on a dataset composed of
+real-life ECG [27, 23]. Besides considering classical distortion met-
+rics, this assessment also focused on the model’s ability to preserve
+clinically relevant signal components of the ECG signal, such as
+QT distance (Section 3).
+1.1 Related works
+Synthesizing ECG signals involves creating artificial waveforms
+that resemble real ECG patterns. Generally, ECG synthesis has been
+studied through the lens of data augmentation [24] aiming to in-
+crease the size of the training dataset by generating "authentic"-like
+2Code available at https://github.com/UMMISCO/ecgrecover
+2360
+
+=== PAGE 3 ===
+ECGrecover: A Deep Learning Approach for Electrocardiogram Signal Completion KDD ’25, August 3–7, 2025, Toronto, ON, Canada
+ECGs conditioned or not on heart pathologies, to enhance classifier
+performance in arrhythmia predictions (e.g., [5, 9, 10]); to improve
+ECG quality assessment [40], and to improve ECG anomaly de-
+tection [20], among other applications. Existing techniques often
+involve training deep neural networks such as Variational Autoen-
+coders (VAE) (e.g. [30, 17]), Generative Adversarial Networks (GAN)
+(e.g. [36, 12]), or CycleGAN (e.g [1]).
+ECG completion has been addressed in [3, 35], where the re-
+maining leads are reconstructed from three other complete leads (I,
+II, and V2). In [6, 18], the limb leads (frontal electrodes) are used
+to generate the thoracic leads (precordial electrodes). Nonetheless,
+these studies do not address the scenario where the reconstruction
+of the remaining leads is based only on a single lead, nor when the
+leads are partially recorded (less than 10 seconds).
+Another solution is proposed in [15], where the authors intro-
+duced EKGAN, a conditional GAN based on Pix2Pix [13], consisting
+of two generators and one 1D U-Net discriminator [26], that tackles
+the reconstruction of 12-lead ECGs from one single lead (lead I).
+Prior attempts in synthesizing multiple ECGs from a single-lead
+ECG were made in [29] where the authors proposed a GAN com-
+posed of a U-Net generator and a discriminator based on the Patch-
+GAN [13] architecture. The model is designed to take 2.5-second
+ECG segments from lead I as input and reconstruct 2.5-second seg-
+ments for any other leads. The authors trained 11 different models,
+each tailored for reconstructing the ECG signal of a specific lead
+from the input derived from lead I.
+It is worth noting that in both [15] and [29], the experimental data
+comprise 10s ECG recordings at 500Hz. However, the evaluation
+is conducted on different databases: a private one for [15] and
+PTBXL [33] along with a second dataset [39] for [25, 29].
+Finally, a more naive technique for the ECG segment-recovery
+problem involves copy-pasting the available signal to fill up the
+missing segments, as suggested by Badilini et al. in [4].
+Considering a broader context beyond just ECGs, Alcaraz et
+al. [2] propose a time series imputation model that integrates the
+principles of classical conditional time diffusion models with the
+methodologies of structured state space models. Unlike our setting,
+which focuses on 17 realistic cases, they focus on scenarios not
+necessarily connected to our analysis. Specifically, they address
+random missing, where zero entries of an imputation mask are
+sampled randomly across all channels; random block missing (RBM),
+where one segment per channel is sampled as the imputation target;
+blackout missing (BM), where a single segment is missing across
+all channels; and time series forecasting (TF), a special case of BM
+where the imputation region spans𝑡 time steps at the end of the
+sequence. While Alcaraz et al. provide experiments on the PTB-XL
+datasets, their method cannot be fairly compared to ours due to key
+differences. Their ECGs are downsampled from 500 Hz to 100 Hz,
+which could shift data distributions significantly. Additionally, their
+model’s training time is considerably longer at 36 hours, affecting
+its practicality and scalability. Finally, we would like to point out
+that, in our configurations, the models must reconstruct up to 92%
+of the original signal in the worst-case scenario (C1), whereas the
+proposed schemes in [2] only require up to 50% of the signal to be
+generated each time (RBM setting).
+Table 1: Table of symbols
+Symbol Definition
+𝐿 Number of leads in ECG
+𝑁 Length of the ECG
+x∈X⊂ R𝐿×𝑁 Valid (and complete) multi-lead ECG
+ex∈ eX⊂ R𝐿×𝑁\X Incomplete multi-lead ECG
+𝑓𝜃(·) Model parameterized by𝜃
+bx≡ 𝑓𝜃(ex) Reconstructed multi-lead ECG
+x𝑙 ,ex𝑙 ,bx𝑙∈ R1×𝑁 ECG signal at lead𝑙
+x𝑙𝑛 ,ex𝑙𝑛 ,bx𝑙𝑛∈ R ECG value at lead𝑙 and point𝑛
+LMSE(·) Mean Squared Error loss
+LPearson(·) Pearson loss
+Sample correlation coefficient
+𝑟𝑙 𝑗 (i.e., Pearson correlation coefficient)
+between lead𝑙 and 𝑗
+2 Methods
+In this section, we formally define the problem of ECG reconstruc-
+tion. Subsequently, we introduce ECGrecover, our proposed ap-
+proach, and extensively evaluate it while comparing it with state-
+of-the-art methods using relevant real-life ECG datasets. In Table 1,
+the list of the symbols used throughout this article.
+2.1 Problem formulation
+Let𝑋∼𝑃𝑋 be the random variable (r.v.) for which we have realiza-
+tion x∈X⊆ 𝑅𝐿×𝑁 , where𝐿∈ N represents the number of leads
+and𝑁∈ N the length of the signal in terms of sample points. We
+will refer toX as the set of valid ECGs, meaning they make sense in
+clinical terms. In this specific context, we say that an ECG is valid
+if it is also complete i.e., for all𝑙∈{ 1,...,𝐿 } and𝑛∈{ 1,...,𝑁 },
+x𝑙𝑛 ≠ 0, where x𝑙𝑛 indicates the specific data point at lead 𝑙 and
+time point 𝑛 within the ECG matrix, while x𝑙 denotes the ECG
+vector of𝑁 time points at lead𝑙. We call it incomplete otherwise,
+and we denote the set of incomplete ECGs as eX⊂ R𝐿×𝑁\X .
+We aimed to develop a model capable of inferring the missing
+portions of incomplete ECG, whether these are specific segments
+within leads or the entire leads themselves. To achieve this goal,
+we employed a data-driven approach, training a generative model
+on masked data to simulate real-life configurations where specific
+segments (or leads) of the signal are missing: in Figure 2 for each of
+the twelve leads, the green segments denote the available segments,
+i.e., the primer, while the red segments denote the part of the ECG
+to be reconstructed. Specifically, in Figure 2a, we present configu-
+rations with contiguous primers varying in overall signal coverage
+and lead: primers of 0.8s in C1, primers of 1.6s in C2, primers of 2.5s
+in C3, primers of 3.3s in C4, and primers of 5.0s in C5. In Figure 2b,
+we depict configurations where the full leads must be reconstructed.
+The configuration the most considered in the literature is CI, where
+given the full trace of the first lead, the goal is to reconstruct the
+remaining ones [15]. Although, in reality, the ECG acquisition ma-
+chines record the whole signal (12 lead 10 seconds), most of this
+signal is lost when stored in paper ECG format or as a digital PDF
+file. For instance, some recording machines may capture six leads
+for 5 seconds, as illustrated in C5, or they might record three leads
+2361
+
+=== PAGE 4 ===
+KDD ’25, August 3–7, 2025, Toronto, ON, Canada Alex Lence et al.
+for a shorter span of 2.5 seconds, as in the case of the C3 config-
+uration (Figure 1). Finally, we highlight that at a higher level of
+abstraction, our problem definition comprehensively encompasses
+both ECG segment recovery and ECG lead reconstruction.
+2.2 Our proposed method
+Formally, letS𝑀 =
+Δ
+n
+x(𝑖)
+o𝑀
+𝑖=1
+∼𝑃𝑋 be a random realization of𝑀
+i.i.d. valid ECG according to 𝑃𝑋 . Moreover, letK be a countable
+set of indexes corresponding to each of the possible real-life data
+masks (e.g., as the ones we show in Figure 2). Finally, we letG =
+Δ
+{𝑔𝑘 :X→ eX| 𝑘∈K} be the set of possible masking functions
+that, given a valid ECG, outputs an incomplete one. Our training
+set is defined asD𝑀 =
+Δ
+{(𝑔(x), x)| x∈S 𝑀, 𝑔∈G}.
+Given the parametric family of models F =n
+𝑓𝜃 : eX→X| 𝜃∈ Θ
+o
+, where 𝜃 represents the model param-
+eters, our learning algorithm aims to minimize the following
+objective function:
+min
+𝑓𝜃∈F
+∑︁
+(ex,x)∈D 𝑚
+h
+LMSE(ex, x,𝑓 𝜃)+ 𝛼·L Pearson(ex, x,𝑓 𝜃)
+i
+, (1)
+where𝛼 is the hyper-parameter regulating the loss and
+LMSE(ex, x,𝑓 𝜃) =
+Δ 1
+𝐿·𝑁
+𝐿∑︁
+𝑙=1
+𝑁∑︁
+𝑛=1
+(𝑓𝜃(ex)𝑙𝑛− x𝑙𝑛)2
+LPearson(ex, x,𝑓 𝜃) =
+Δ 1
+𝐿
+𝐿∑︁
+𝑙=1
+
+1−𝑟x𝑙bx𝑙
+
+,
+where𝑟x𝑙bx𝑙 is the sample correlation coefficient for (𝑓𝜃(ex), x)≡
+(bx, x) for the lead𝑙, i.e.,
+𝑟x𝑙bx𝑙 =
+˝𝑁
+𝑛=1
+
+bx𝑙𝑛−𝜇bx𝑙
+  x𝑙𝑛−𝜇x𝑙
+
+√︂
+˝𝑁
+𝑛=1
+
+bx𝑙𝑛−𝜇bx𝑙
+2√︃˝𝑁
+𝑛=1
+ x𝑙𝑛−𝜇x𝑙
+2
+,
+with𝜇bx𝑙 = 1
+𝑁
+˝𝑁
+𝑛=1bx𝑙𝑛 and𝜇x𝑙 = 1
+𝑁
+˝𝑁
+𝑛=1 x𝑙𝑛 .
+The final cost function in Equation (1) accounts for the ECG’s
+spatial and temporal aspects. Specifically,LMSE is the mean squared
+error loss and ensures an accurate reconstruction of the ECG signal
+by capturing the average distance in amplitude between the recon-
+structed and the real signal. On the contrary,LPearson is the Pearson
+loss, which promotes the preservation of specific linear relation-
+ships within the signal. Specifically, as the imputation improves,
+LPearson→ 0 as𝑟→ 1 (strong correlation). In Appendix A.1, we
+detail the performance of the model in the validation set across var-
+ious values of𝛼, particularly focusing on the extreme cases:𝛼 = 0,
+i.e., when the loss is exclusively based onLMSE, and𝛼 =∞, i.e.,
+the loss isLPearson only. Moreover, we illustrate the loss evolution
+during training when𝛼 = 0.1 in Appendix A.2.
+Similarly to training, at testing starting from𝑇 random realiza-
+tion of𝑈 i.i.d. valid ECG according to 𝑃𝑋 , we apply each one of
+the masks inG to create the pair of samples to test. In contrast
+to the training phase, our evaluation is performed separately for
+each set of samples generated according to the specific masks under
+consideration to evaluate generalization across configurations.
+3 Results
+In this section, we evaluate the effectiveness of ECGrecover and
+compare it with state-of-the-art (SOTA) methods. We first outline
+the experimental setup, and then we discuss the results. Additional
+simulations and findings are provided in Appendix A.
+3.1 Experimental setup
+3.1.1 Datasets. We utilized the Generepol dataset [27] (cf. Table 7),
+comprising 10-second 8-lead ECGs sampled at 500Hz. Leads III, aVF,
+aVL, and aVR were computed from leads I and II, following the
+common practice in the ECG literature [31].
+The study was conducted from 2008 to 2012 at the Clinical Inves-
+tigation Center of the Pitié-Salpétrière Hospital Paris, France. 15119
+ECGs were recorded from 989 healthy subjects. These recordings
+were taken before and after the 80mg of Sotalol oral intake. Two
+expert cardiologists curated and evaluated the recordings. We refer
+to [27, 23] for further details about the acquisition process.
+The raw data for the training set consists of 4498 ECGs (i.e.,
+SM in Section 2.1), augmented to 76466 after each of the masks
+in Figure 2 is applied. The validation set consists of 9486 ECGs, and
+the testing set consists of 10047 ECGs.
+3.1.2 Data preprocessing. We first min-max normalized the ECG
+data to a range of [-1,1]. We followed a strategy close to [15] to pre-
+pare our data: bandpass filtering was applied to the normalized data,
+using lower and upper cut-off frequencies of 0.05Hz and 150Hz,
+respectively, to eliminate noise, such as baseline drift and improve
+signal quality. Finally, we downsampled the original signal from
+5000pts (500Hz) to 512pts (50Hz). As described in Section 2.1, to
+mimic real-life cases of ECG with incomplete leads or segments,
+we considered the scenarios illustrated in Figure 2. Subsequently,
+to maintain the original dimensions of the signal, we completed
+the primers with random noise. Such noise was generated from
+a continuous uniform distribution within the[0, 1] interval. This
+method introduces variability in the noise across samples, thereby
+realistically simulating the presence of missing signals. An illustra-
+tion of an ECG with incomplete leads or segments after introducing
+random noise is shown in Figure 3 (top).
+3.1.3 Evaluation metrics. We assessed the effectiveness of the pro-
+posed approach from two distinct perspectives. Initially, we evalu-
+ated its reconstruction capability using standard distortion metrics
+employed in recent literature [15, 29]. We employed the root mean
+square error (RMSE) and the maximum absolute error (MAE). Ad-
+ditionally, we considered the dynamic time warping (DTW) as an
+alignment-based similarity measure to evaluate the distance be-
+tween the original and reconstructed signals (the lower, the better)
+and the Pearson correlation coefficient (PCC) to evaluate the linear
+relationships between leads (the higher, the better). Subsequently,
+we examined ECGrecover’s ability to preserve crucial features of
+the ECG signal. In particular, we focused on preserving the QT
+distance. We isolated each ECG heartbeat by detecting the R peak
+and extracting the segment 0.4 seconds before and 0.6 seconds after.
+For each heartbeat, we identified the position of the Q and T peaks3
+to determine the QT distance. We then calculated the difference in
+3We used the neurokit2 python library to detect the peaks [21].
+2362
+
+=== PAGE 5 ===
+ECGrecover: A Deep Learning Approach for Electrocardiogram Signal Completion KDD ’25, August 3–7, 2025, Toronto, ON, Canada
+(a) Masks to simulate ECG segment-recovery.
+ (b) Masks to simulate ECG lead-reconstruction.
+Figure 2: Masks applied to ECGs for simulating real-life incomplete ECGs. The green sections represent the primers – the
+portions of the signal available, while the red sections indicate the parts of the signal that need to be reconstructed. In 2a, the
+numbers in brackets specify the primers’ length.
+QT distance between the reconstructed ECGs and the real ECGs
+denoted as Δ QT (the lower, the better).
+3.1.4 State-of-the-art methods. We compared ECGrecover with
+the most recent SOTA methods for the ECG lead-reconstruction
+problem4. It is worth noting that, to the best of our knowledge, no
+other existing methods address the ECG segment-recovery problem.
+Pix2Pix [13]. Initially proposed for images, a conditional generative
+adversarial network (cGAN) employs a 2D U-Net generator and
+a PatchGAN discriminator. Unlike traditional discriminators that
+classify the entire image as real or fake, PatchGAN evaluates the
+realism of small, overlapping patches within the image.
+EKGAN [15]. A GAN for the reconstruction, based on Pix2Pix,
+augmented by an additional label generator and a 1D U-Net dis-
+criminator instead of a PatchGAN discriminator.
+CopyPaste. A naive approach consists of replicating the primers
+throughout the signal to complete the ECG. This technique is im-
+plemented in [4], a software for digitizing paper ECGs.
+Their original paper, particularly EKGAN, focuses on recon-
+structing the 11 leads given lead I, corresponding to setting C I
+in Figure 2. Hence, the method was not initially designed for the
+ECG segment-recovery problem. However, for fairness, we assessed
+all the methods’ performance across all the settings in Figure 2.
+3.1.5 Model architecture and training procedure. We consider a
+U-Net like architecture [26], summarized in Figure 3. The encoder
+consists of two input branches, one 2D and the other 1D. On the
+one hand, the purpose of the 2D branch is to let the model learn
+inter-lead information of the signal. The 2D branch processes all
+leads simultaneously, facilitating the transfer of spatial information
+(inter-lead). This branch comprises four 2D convolution blocks,
+each presenting a 2D convolution layer, batch normalization, a
+LeakyReLu (0.2) activation function, and dropout (0 .2). On the
+other hand, the 1D branch provides the model to learn intra-lead
+characteristics. The 1D branch focuses on lead-specific information,
+maintaining horizontal coherence (intra-lead). Similarly, to the 2D
+branch, this one consists of 12× 4, 1D convolution blocks. The
+output of each block (1D/2D) is concatenated and then input in
+4No comparison could be made with Seo et al. (2022) [29] due to code unavailability.
+X
+Figure 3: Training set and network architecture.
+the decoder. The skip connection characteristics of the U-Net play
+an essential role in preserving part of the information captured
+by the 1D and 2D branches, which they transmit to the decoder.
+In this way, they maintain intra-lead and inter-lead relationships
+throughout the auto-encoding and decoding process.
+2363
+
+=== PAGE 6 ===
+KDD ’25, August 3–7, 2025, Toronto, ON, Canada Alex Lence et al.
+Config C_I
+Lead II
+0 100 200 300 400 500
+−1.0
+−0.5
+0.0
+0.5
+1.0
+Timepoints (50Hz)
+Amplitude
+ECGrecover
+Config C_I
+Lead II
+0 100 200 300 400 500
+−1.0
+−0.5
+0.0
+0.5
+1.0
+Timepoints (50Hz)
+Amplitude
+CopyPaste
+Config C_I
+Lead II
+0 100 200 300 400 500
+−1.0
+−0.5
+0.0
+0.5
+1.0
+Timepoints (50Hz)
+Amplitude
+EKGAN
+Config C_I
+Lead II
+0 100 200 300 400 500
+−1.0
+−0.5
+0.0
+0.5
+1.0
+Timepoints (50Hz)
+Amplitude
+Pix2Pix
+Config C_I
+Lead II
+0 100 200 300 400 500
+−1.0
+−0.5
+0.0
+0.5
+1.0
+Timepoints (50Hz)
+Amplitude
+ECGrecover
+Config C_I
+Lead II
+0 100 200 300 400 500
+−1.0
+−0.5
+0.0
+0.5
+1.0
+Timepoints (50Hz)
+Amplitude
+CopyPaste
+Config C_I
+Lead II
+0 100 200 300 400 500
+−1.0
+−0.5
+0.0
+0.5
+1.0
+Timepoints (50Hz)
+Amplitude
+EKGAN
+Config C_I
+Lead II
+0 100 200 300 400 500
+−1.0
+−0.5
+0.0
+0.5
+1.0
+Timepoints (50Hz)
+Amplitude
+Pix2Pix
+Config C3
+Lead II
+0 100 200 300 400 500
+−1.0
+−0.5
+0.0
+0.5
+1.0
+Timepoints (50Hz)
+Amplitude
+ECGrecover
+Config C3
+Lead II
+0 100 200 300 400 500
+−1.0
+−0.5
+0.0
+0.5
+1.0
+Timepoints (50Hz)
+Amplitude
+CopyPaste
+Config C3
+Lead II
+0 100 200 300 400 500
+−1.0
+−0.5
+0.0
+0.5
+1.0
+Timepoints (50Hz)
+Amplitude
+EKGAN
+Config C3
+Lead II
+0 100 200 300 400 500
+−1.0
+−0.5
+0.0
+0.5
+1.0
+Timepoints (50Hz)
+Amplitude
+Pix2Pix
+Config C5
+Lead II
+0 100 200 300 400 500
+−1.0
+−0.5
+0.0
+0.5
+1.0
+Timepoints (50Hz)
+Amplitude
+ECGrecover
+Config C5
+Lead II
+0 100 200 300 400 500
+−1.0
+−0.5
+0.0
+0.5
+1.0
+Timepoints (50Hz)
+Amplitude
+CopyPaste
+Config C5
+Lead II
+0 100 200 300 400 500
+−1.0
+−0.5
+0.0
+0.5
+1.0
+Timepoints (50Hz)
+Amplitude
+EKGAN
+Config C5
+Lead II
+0 100 200 300 400 500
+−1.0
+−0.5
+0.0
+0.5
+1.0
+Timepoints (50Hz)
+Amplitude
+Pix2Pix
+Figure 4: Lead II signal obtained with different approaches for C I. Reconstructed leads are in red, the original ones are in black.
+Top depicts a relatively clean ECG while Bottom, an noisy ECG with baseline wander
+The transition block consists of a 2D deconvolution layer, ker-
+nels of dimensions(13, 3) with no stride, followed by batch normal-
+ization and a LeakyReLu (0.2) activation function. The transition
+output is fed into the decoder, which consists of 4 2D deconvolution
+blocks. Each comprises a 2D deconvolution layer, batch normal-
+ization, and LeakyReLu activation function (0.2). Each output of
+a deconvolution block is concatenated with the output (concate-
+nated 1D/2D) of the symmetric convolution block. Finally, in the
+last 2D deconvolution block of the decoder, we use the Tanh activa-
+tion function to have a signal between−1 and 1 as in the original
+normalized input signal.
+Unlike SOTA approaches, our method directly tackles the chal-
+lenges of segment recovery and lead reconstruction. To achieve this,
+it: (1) employs a U-Net architecture that effectively captures horizon-
+tal information; (2) offers a simpler optimization process compared
+to GAN-based approaches; and (3) utilizes a hybrid 1D/2D U-Net
+architecture to model both inter-lead and intra-lead relationships.
+We trained the model for 100 epochs with a batch size of 256.
+We also used the Adam optimizer with a learning rate of 0.01. The
+hyperparameter𝛼 in Equation (1) was tuned by choosing values
+within the range(0, 1). The final value of𝛼 used for the experiments
+was fixed to 0.1 (cf. Appendix A.1).
+3.2 Discussion
+We now present the main experimental results to demonstrate the
+effectiveness of ECGrecover in addressing lead reconstruction and
+segment recovery. Specifically, we first evaluate the performance
+of our approach using the metrics outlined in Section 3.1.3. Next,
+we analyze its ability to preserve key ECG features and assess the
+reconstructed signal’s impact on inter-lead correlation. Finally, we
+showcase a real-world application of ECGrecover by applying it also
+to downstream AI tasks. Further results are provided in Appendix A.
+Throughout this section, we use the C• notation to indicate the
+input sample that, at testing time, has been masked according to
+the considered configuration•. Therefore, we compare the recon-
+structed lead (e.g., lead I from the ECG in output when the input
+sample was masked with C1) with its original counterpart.
+Figure 4 shows examples of lead II reconstructions. The plots sug-
+gest that ECGrecover can also correct basal drift, the effect where
+I II III V6
+PCCRMSEDTW
+C1
+C3
+C5
+C_I
+C_II
+C_III
+C_V6
+C1
+C3
+C5
+C_I
+C_II
+C_III
+C_V6
+C1
+C3
+C5
+C_I
+C_II
+C_III
+C_V6
+C1
+C3
+C5
+C_I
+C_II
+C_III
+C_V6
+−0.5
+0.0
+0.5
+1.0
+0.00
+0.25
+0.50
+0.75
+1.00
+1.25
+0.0
+0.5
+1.0
+1.5
+Reconstructed configuration
+Mean ± SD
+CopyPaste ECGrecover EKGAN Pix2Pix
+Figure 5: Performance of ECGrecover and the SOTA in their
+reconstruction capabilities for segment recovery (C1, C3, C5)
+and lead reconstruction (C I, CII). ECGrecover is significantly
+better for all metrics (p-value < 2e-16).
+a signal’s base axis (x-axis) appears to ‘wander’ or move up and
+down rather than be straight. We elaborate on this in Appendix A.3.
+3.2.1 ECG segment-recovery and lead-reconstruction. Figure 5
+presents an evaluation of ECGrecover, alongside benchmark state-
+of-the-art methods, focusing on PCC, RMSE and DTW for the
+Generepol dataset. We relegate to Figure 8 the complete sets of the
+results across all the 17 scenarios and all the 12 leads.
+As for the ECG segment-recovery problem, in Figure 5, we specif-
+ically focused on configuration C1 as it represents the scenario with
+primers of shorter duration (i.e., 0.8sec) where most of the signal
+needs to be reconstructed. Additionally, we analyze the settings
+C3 and C5 as they reflect real-life situations when digitizing paper
+ECGs. Regarding the ECG lead-reconstruction problem, we high-
+light in the figure the configurations CI as it is the one considered
+also considered in [15], and CII because of its relevance in wearable
+device recordings and paper-stored ECGs, where Lead II, akin to
+Lead I, is predominantly captured. For each of the input masks, we
+2364
+
+=== PAGE 7 ===
+ECGrecover: A Deep Learning Approach for Electrocardiogram Signal Completion KDD ’25, August 3–7, 2025, Toronto, ON, Canada
+Table 2: The performance of ECGRecover and the SOTA in generating coherent ECG signal, which allows to compute the
+QT-interval computed as the difference with that calculated in the original signal (mean ±standard deviation). This is evaluated
+before (Sot-) and after (Sot+) drug intake, for the segment-recovery (C1, C3, C5) and the lead-reconstruction problem (C I, CII).
+Δ QT distance (Sot-) (↓) Δ QT distance (Sot+) (↓)
+Lead ECGrecover EKGAN [15] Pix2Pix [13] CopyPaste ECGrecover EKGAN [15] Pix2Pix [13] CopyPaste
+C1
+I 0.01±0.02 0.11±0.06 0.09±0.04 0.05±0.05 0.02±0.03 0.12±0.07 0.11±0.05 0.07±0.05
+II 0.01±0.01 0.12±0.06 0.08±0.04 0.04±0.04 0.01±0.03 0.15±0.07 0.1±0.05 0.06±0.07
+III 0.07±0.07 0.11±0.09 0.11±0.09 0.05±0.08 0.06±0.06 0.11±0.09 0.13±0.09 0.06±0.07
+V1 0.03±0.04 0.05±0.05 0.04±0.04 0.02±0.04 0.03±0.04 0.05±0.05 0.04±0.04 0.02±0.04
+V6 0.01±0.01 0.13±0.06 0.06±0.04 0.02±0.05 0.01±0.03 0.16±0.06 0.08±0.06 0.03±0.06
+C3
+I 0.01±0.01 0.05±0.04 0.08±0.04 0.02±0.03 0.01±0.03 0.07±0.05 0.09±0.05 0.03±0.04
+II 0.01±0.01 0.07±0.05 0.05±0.04 0.02±0.02 0.01±0.02 0.10±0.06 0.07±0.04 0.03±0.04
+III 0.06±0.07 0.11±0.09 0.10±0.08 0.04±0.06 0.05±0.05 0.11±0.09 0.13±0.09 0.05±0.06
+V1 0.03±0.03 0.04±0.04 0.04±0.04 0.02±0.03 0.02±0.04 0.04±0.05 0.03±0.04 0.02±0.02
+V6 0.01±0.01 0.10±0.05 0.05±0.04 0.02±0.03 0.01±0.02 0.13±0.06 0.07±0.05 0.03±0.04
+C5
+I 0.01±0.02 0.03±0.02 0.03±0.03 0.01±0.02 0.01±0.03 0.04±0.04 0.05±0.04 0.02±0.02
+II 0.01±0.01 0.04±0.04 0.03±0.03 0.01±0.02 0.01±0.02 0.07±0.06 0.04±0.04 0.01±0.02
+III 0.05±0.06 0.09±0.08 0.08±0.08 0.02±0.04 0.05±0.06 0.12±0.09 0.10±0.09 0.02±0.04
+V1 0.03±0.03 0.04±0.04 0.05±0.04 0.01±0.02 0.02±0.03 0.03±0.05 0.05±0.04 0.01±0.02
+V6 0.00±0.01 0.05±0.04 0.02±0.02 0.01±0.01 0.01±0.02 0.09±0.06 0.04±0.04 0.02±0.02
+CI II 0.01±0.01 0.01±0.01 0.01±0.03 0.01±0.02 0.01±0.03 0.01±0.03 0.02±0.04 0.01±0.03
+III 0.06±0.07 0.08±0.08 0.09±0.08 0.08±0.07 0.06±0.07 0.07±0.07 0.09±0.07 0.09±0.07
+V1 0.03±0.04 0.04±0.04 0.10±0.05 0.09±0.06 0.03±0.04 0.03±0.04 0.12±0.06 0.12±0.06
+V6 0.01±0.01 0.01±0.01 0.02±0.02 0.01±0.02 0.01±0.03 0.01±0.03 0.03±0.03 0.01±0.03
+CII
+I 0.01±0.02 0.01±0.02 0.02±0.02 0.01±0.02 0.01±0.04 0.01±0.04 0.03±0.04 0.01±0.04
+III 0.09±0.10 0.09±0.08 0.08±0.07 0.08±0.06 0.08±0.09 0.11±0.08 0.08±0.07 0.09±0.07
+V1 0.03±0.04 0.04±0.04 0.09±0.05 0.09±0.05 0.03±0.04 0.03±0.04 0.09±0.06 0.12±0.06
+V6 0.01±0.01 0.01±0.01 0.02±0.02 0.01±0.01 0.01±0.02 0.01±0.03 0.02±0.03 0.01±0.03
+tested the ability of the model to reconstruct the limb leads I, II,
+and III and the chest leads V1 and V6. Practitioners note that leads
+II and V1 are useful leads for measuring heart rate.
+Overall, ECGrecover outperforms or reaches the same results as
+the SOTA, regardless of the chosen metric. As depicted in Figure 5,
+lead V6 emerges as the most straightforward to reconstruct, both in
+ECG segment-recovery (C1, C3, C5) and ECG lead-reconstruction
+(CI, CII). Conversely, lead III is the most challenging to reconstruct
+from the other leads. In particular, while our method consistently
+delivers satisfactory results across all samples tested, competing
+methods exhibit more significant variability (e.g., DTW values for
+EKGAN). Interestingly, the simple CopyPaste method yields reason-
+able results regarding RMSE and DTW. However, as seen from the
+PCC results, the method fails to preserve the linear relationships
+between the original and reconstructed leads, underscoring the
+method’s limitations as the heart rhythm may vary through time,
+thus losing sync. This highlights the importance of evaluating the
+methods from multiple perspectives.
+Referring to the comprehensive results in Figure 8, our analysis
+shows that, in contrast to ECGrecover, the competing approaches
+EKGAN and Pix2Pix face significantly more challenges in the ECG
+segment-recovery task compared to the ECG lead-reconstruction
+task. On the other hand, the CopyPaste method struggles primarily
+with the lead-reconstruction problem. This outcome is not surpris-
+ing as EKGAN and Pix2Pix were specifically designed for ECG
+lead-reconstruction. In contrast, CopyPaste, which essentially du-
+plicates the signal across leads, performs poorly when the lead
+to reconstruct is less correlated with the primer lead in the mask.
+We emphasize that in Appendix A.6, we conduct an additional
+evaluation of our proposed method using the PTB-XL dataset [33].
+3.2.2 On the QT distance preservation. An ECG visually represents
+the heart’s electrical activity during a cardiac cycle, encompassing
+a single heartbeat, which involves the heart filling with blood and
+then contracting to pump it out. The standard ECG trace includes
+several key components, each corresponding to specific electrical
+events within the heart. The intervals and segments between these
+components (QT distance, PR interval, etc.) also provide important
+information about the cardiac cycle’s timing and electrical conduc-
+tion through the heart. Understanding and evaluating them helps
+diagnose a wide range of cardiac abnormalities and conditions [22].
+In Table 2, we evaluated the methods’ capacity to generate a sig-
+nal that can be effectively analyzed. The performance is computed
+as the difference between the QT distance calculated in the re-
+constructed signals and the QT distance computed in the original
+signals (Δ-QT). Specifically, we segmented each ECG into heart-
+beats by identifying the position of the R-peak within the original
+2365
+
+=== PAGE 8 ===
+KDD ’25, August 3–7, 2025, Toronto, ON, Canada Alex Lence et al.
+leads and isolated the specific spike by taking a 1-second window
+centered on the R-peak. For detecting the peaks, we use the Neu-
+rokit library [21], which supports extracting critical features from
+the ECG. At each heartbeat, we identified the Q wave and the end
+of the T wave, and calculate the average QT interval for each ECG.
+The results in Table 2 are grouped w.r.t. Sot+ and Sot- true label
+in the Generepol study. Indeed, as described in Section 3.1.1, in
+this study participants were administered Sotalol, a drug known
+to prolong the QT interval and in some cases alter the morphol-
+ogy of the T-wave. These effects make QT interval measurement
+more challenging [27, 23]. Remarkably, our analysis did not re-
+veal a significant performance difference in ECGrecover between
+ECGs recorded before and after drug intake. The method demon-
+strate consistent performance across various input masks and lead
+reconstructions. While ECGrecover outperforms or reaches the
+same results as its competitors, the CopyPaste method occasionally
+achieves better results. The explanation lies in the inherent nature
+of the CopyPaste technique, which maintains beat information
+through direct replication. By duplicating each beat identically, the
+CopyPaste method inherently preserves the average QT distance
+with lower variability, reflecting an artifact.
+Figure 6: The matrix entry at index (𝑖,𝑗) represents PCC
+between the 𝑗-th reconstructed lead and the 𝑗-th original
+lead, given that the input mask applied is 𝐶𝑖 .
+3.2.3 On the inter-lead correlation. We are interested in inter-lead
+correlation during ECG reconstruction. Specifically, in Figure 6, the
+matrix entry at index(𝑖,𝑗) represents PCC between the 𝑗-th recon-
+structed lead and the 𝑗-th original lead, given that the input mask
+applied is𝐶𝑖. Thus, the𝑖-th row illustrates the model’s effectiveness
+in utilizing the specific𝑖-th lead’s data to reconstruct the remaining
+leads of the ECG accurately. Conversely, the𝑗-th column indicates
+which input mask most significantly guides the model towards a
+more accurate reconstruction.
+Figure 6 highlights the strong correlation between leads V3, V4,
+V5 and V6. Lead III exhibits a lower correlation with the other leads.
+While surprising at first, given that lead III can theoretically be
+derived from leads I and II through Einthoven’s triangle [22], this
+characteristic has also been observed in [14] on a distinct dataset.
+Moreover, similar conclusions can also be found in [37] regarding
+lead V1. Their findings revealed a notably low correlation between
+lead V1 and the other leads, with PCC close to 0, suggesting that the
+information provided by lead V1 is substantially distinct from that
+of the other leads. Consequently, it is understandable that the mask
+CV1 in Figure 6 is the most challenging to reconstruct. Noteworthy,
+PCC measures linear correlation, and other complex relationships
+will not be captured. Factors like noise or artifacts in individual
+physiology can also contribute to lower correlation values.
+3.2.4 Reconstructing digitized paper-stored ECGs. Historically,
+ECGs have been printed and stored on paper or saved as images [8],
+which presents clear storage and exploitation challenges, as high-
+lighted in Section 1. In the most common formats for paper-stored
+ECGs, each lead is only partially represented, typically showing
+only 2.5 or 5 seconds of the usual 10-second signal. This section
+evaluates the proposed method in a real-life scenario by examining
+ECGrecover’s ability to reconstruct the missing parts of ECGs that
+were initially stored on paper and digitized.
+We considered the LUDB [16] and PTB-XL [33] datasets for
+the experiments. Specifically, these datasets are available in both
+the original paper-stored version (in .pdf) and the corresponding
+numerical version (in .xml). The ECGs saved in .pdf format was
+digitized with ECGminer software [28] to produce a partial .xml
+version. The .pdf version of the ECGs corresponds to configuration
+C3, except for lead II, which is complete. We refer to this new
+setting as Creal-life. In contrast, the.xml version includes the full 12-
+lead tracks, making it well-suited for comprehensive testing of the
+reconstruction method. We evaluated ECGrecover, trained on the
+Generepol dataset, to assess its robustness in reconstructing ECGs
+from various databases. To align with the training phase, the signals
+were preprocessed in the same way as presented in Section 3.1.2.
+The results presented in Table 3 demonstrate that the proposed
+method achieves strong performance in this setting. Specifically,
+for the PTB-XL database, the method yields an overall mean PCC
+of 0.92, an RMSE of 0.1, and an SDTW of 0. For the LUDB data-
+base, it achieves an average PCC of 0.91, an RMSE of 0.06, and a
+DTW distance of 0. These positive outcomes can be attributed to
+the carefully designed configuration we sought to reconstruct. In
+particular, Creal-life incorporates the full lead II along with partial
+versions of other leads. This configuration serves as an intermediate
+setup between C3 and CII, providing the model with a richer and
+more diverse set of input information compared to the training con-
+figurations. The enhanced input likely accounts for the improved
+predictive performance. Notably, as illustrated in Figure 6, lead II
+alone demonstrates the ability to reconstruct all ECG leads with
+an accuracy of 0.87. By integrating additional information from
+other leads, the hybrid configuration in C real-life likely amplifies
+the model’s performance, resulting in the observed improvements.
+3.2.5 Applying ECGrecover to AI-based applications. Here we illus-
+trate the use of ECGrecover in a downstream AI-based application
+task, predicting the risk of Torsade-de-Pointes events. As detailed
+in Section 3.1.1, Sot- and Sot+ denote ECGs from healthy individuals
+before and after ingesting 80mg of Sotalol. Thus, we utilize the CNN
+model initially crafted by Prifti et al. [23] for TdP risk prediction.
+2366
+
+=== PAGE 9 ===
+ECGrecover: A Deep Learning Approach for Electrocardiogram Signal Completion KDD ’25, August 3–7, 2025, Toronto, ON, Canada
+Table 3: ECGrecover for reconstructing digitized paper-based ECGs. C real-life corresponds to C3 configuration with lead II fully
+represented. The values are computed by comparing the numerical signal provided in the datasets with the signal obtained
+after reconstructing the digitized paper-stored ECG.
+PTB-XL (2203 ECGs) LUDB (200 ECGs)
+Lead PCC (↑) RMSE ( ↓) DTW ( ↓) PCC (↑) RMSE ( ↓) DTW ( ↓)
+Cr
+eal-life
+I 0.96±0.18 0.04±0.04 0.0±0.0 0.96±0.20 0.03±0.02 0.0±0.0
+II 0.95±0.18 0.05±0.06 0.0±0.0 0.95±0.21 0.04±0.04 0.0±0.0
+III 0.92±0.21 0.05±0.06 0.0±0.0 0.91±0.22 0.04±0.03 0.0±0.0
+AVL 0.91±0.23 0.05±0.09 0.0±0.0 0.91±0.24 0.06±0.07 0.0±0.0
+AVR 0.95±0.21 0.05±0.06 0.0±0.0 0.95±0.22 0.04±0.04 0.0±0.0
+AVF 0.93±0.21 0.05±0.08 0.0±0.0 0.92±0.21 0.05±0.05 0.0±0.0
+V1 0.86±0.31 0.09±0.23 0.0±0.0 0.86±0.31 0.07±0.09 0.0±0.0
+V2 0.90±0.32 0.17±0.27 0.0±0.0 0.87±0.36 0.08±0.09 0.0±0.0
+V3 0.87±0.31 0.27±0.35 0.0±0.0 0.87±0.30 0.13±0.11 0.0±0.0
+V4 0.90±0.29 0.21±0.32 0.0±0.0 0.88±0.31 0.09±0.11 0.0±0.0
+V5 0.93±0.28 0.13±0.23 0.0±0.0 0.92±0.32 0.07±0.09 0.0±0.0
+V6 0.94±0.28 0.09±0.28 0.0±0.0 0.94±0.30 0.06±0.07 0.0±0.0
+This DenseNet model comprises six blocks, each containing eight
+dense convolutional layers. We trained it with the Adam optimizer,
+employing a learning rate of 0.001 and a dropout rate of 0.2. We
+evaluate our method as a data augmentation technique.
+During training, for a given input sample x, we augmented
+the dataset with x, recovered from configuration C·, with a 0.25
+probability and trained the TdP-risk model for 50 epochs, iterat-
+ing the training phase five times with seeds [0-4] for the random
+number generator. We focused on configurations C3 and C5, com-
+monly encountered in real-life settings, as discussed in Section 3.2.1.
+The TdP-risk model’s accuracy on the original testing set without
+data augmentation is 92.47%. In contrast, with data augmentation,
+the accuracy is 93.84%±0.0065 for C3, 93.73%±0.002 for C5, and
+92.17%±0.0128 for CI. Results are presented as mean +/- standard
+deviation across the five training stages. The results show that
+data regenerated with ECGrecover can be used to augement the
+initial dataset, thus improving model performance. In particular,
+data regenerated from C3 increases model performance by 1%.
+4 Conclusions and future work
+We tackled the problem of reconstructing the 12-lead ECG signal
+when only a partial subset of the signal is available. We proposed
+a U-Net-like model trained on a novel objective function, combin-
+ing the mean squared error loss with the Pearson correlation. We
+evaluated ECGrecover on a real-life ECG dataset comprising 15 119
+10-second ECGs. The comparison to recent SOTA revealed the ef-
+fectiveness of ECGrecover in recovering the missing signal, even in
+challenging cases such as the CI configuration, as quantified either
+with distortion metrics or by the preservation of the QT segment.
+By using the reconstruction capabilities of ECGrecover, we can
+improve the readability of ECG traces, which can be determinant in
+diagnosing diseases. This advancement allows for a more detailed
+and accurate assessment of cardiac activity, facilitating better diag-
+nostic decisions. Notably, ECGrecover is part of the DeepECG4U5
+5https://anr.fr/Project-ANR-20-CE17-0022
+translational research project, which aims to improve patient care
+through automatic analyses of ECG based on AI.
+Acknowledgements
+This study was supported by the ANR-20-CE17-0022 DeepECG4U
+funding from the French National Research Agency (ANR).
+References
+[1] Mohamed Amine Abdelmadjid and Mounir Boukadoum. 2022. Neural network-
+based signal translation with application to the ecg. In 2022 20th IEEE Interre-
+gional NEWCAS Conference (NEWCAS). IEEE, 542–546.
+[2] Juan Miguel Lopez Alcaraz and Nils Strodthoff. 2022. Diffusion-based time
+series imputation and forecasting with structured state space models. arXiv
+preprint arXiv:2208.09399.
+[3] Hussein Atoui, Jocelyne Fayn, and Paul Rubel. 2010. A novel neural-network
+model for deriving standard 12-lead ecgs from serial three-lead ecgs: application
+to self-care. IEEE transactions on information technology in biomedicine, 14, 3,
+883–890.
+[4] Fabio Badilini, Tanju Erdem, Wojciech Zareba, and Arthur J Moss. 2005. Ecgscan:
+a method for conversion of paper electrocardiographic printouts to digital
+electrocardiographic files. Journal of electrocardiology, 38, 4, 310–318.
+[5] Jintai Chen, Kuanlun Liao, Kun Wei, Haochao Ying, Danny Z Chen, and Jian
+Wu. 2022. Me-gan: learning panoptic electrocardio representations for multi-
+view ecg synthesis conditioned on heart diseases. In International Conference
+on Machine Learning. PMLR, 3360–3370.
+[6] Younghoon Cho, Joon-myoung Kwon, Kyung-Hee Kim, Jose R Medina-Inojosa,
+Ki-Hyun Jeon, Soohyun Cho, Soo Youn Lee, Jinsik Park, and Byung-Hee Oh.
+2020. Artificial intelligence algorithm for detecting myocardial infarction using
+six-lead electrocardiography. Scientific reports, 10, 1, 20495.
+[7] Lia Crotti, Giuseppe Celano, Federica Dagradi, and Peter J Schwartz. 2008.
+Congenital long qt syndrome. Orphanet journal of rare diseases, 3, 1, 1–16.
+[8] Willem Einthoven. 1903. Die galvanometrische registrirung des menschlichen
+elektrokardiogramms, zugleich eine beurtheilung der anwendung des capillar-
+elektrometers in der physiologie.Pflügers Archiv European Journal of Physiology,
+99, 9, 472–480.
+[9] Tomer Golany, Gal Lavee, Shai Tejman Yarden, and Kira Radinsky. 2020. Im-
+proving ecg classification using generative adversarial networks. InProceedings
+of the AAAI conference on artificial intelligence number 08. Vol. 34, 13280–13285.
+[10] Tomer Golany and Kira Radinsky. 2019. Pgans: personalized generative adver-
+sarial networks for ecg synthesis to improve patient-specific deep ecg classifica-
+tion. In Proceedings of the AAAI Conference on Artificial Intelligence number 01.
+Vol. 33, 557–564.
+[11] Federica Granese, Ahmad Fall, Alex Lence, Joe-Elie Salem, Jean-Daniel Zucker,
+and Edi Prifti. 2023. The negative impact of denoising on automated classifi-
+cation of electrocardiograms. In Deep Generative Models for Health Workshop
+NeurIPS 2023.
+2367
+
+=== PAGE 10 ===
+KDD ’25, August 3–7, 2025, Toronto, ON, Canada Alex Lence et al.
+[12] Debapriya Hazra and Yung-Cheol Byun. 2020. Synsiggan: generative adversar-
+ial networks for synthetic biomedical signal generation. Biology, 9, 12, 441.
+[13] Phillip Isola, Jun-Yan Zhu, Tinghui Zhou, and Alexei A Efros. 2017. Image-to-
+image translation with conditional adversarial networks. In Proceedings of the
+IEEE conference on computer vision and pattern recognition, 1125–1134.
+[14] Utkars Jain, Adam A Butchy, Michael T Leasure, Veronica A Covalesky, Daniel
+McCormick, and Gary S Mintz. 2023. Redundancy and novelty between ecg
+leads based on linear correlation.
+[15] Jinho Joo, Gihun Joo, Yeji Kim, Moo-Nyun Jin, Junbeom Park, and Hyeonse-
+ung Im. 2023. Twelve-lead ecg reconstruction from single-lead signals using
+generative adversarial networks. In International Conference on Medical Image
+Computing and Computer-Assisted Intervention. Springer, 184–194.
+[16] Alena I Kalyakulina, Igor I Yusipov, Viktor A Moskalenko, Alexander V Nikol-
+skiy, Konstantin A Kosonogov, Grigory V Osipov, Nikolai Yu Zolotykh, and
+Mikhail V Ivanchenko. 2020. Ludb: a new open-access validation tool for elec-
+trocardiogram delineation algorithms. IEEE access, 8, 186181–186190.
+[17] VV Kuznetsov, VA Moskalenko, DV Gribanov, and Nikolai Yu Zolotykh. 2021.
+Interpretable feature generation in ecg using a variational autoencoder. Fron-
+tiers in genetics, 12, 638191.
+[18] Jaehyeok Lee, Minkyu Kim, and Jungkuk Kim. 2015. Reconstruction of precor-
+dial lead electrocardiogram from limb leads using the state-space model. IEEE
+Journal of Biomedical and Health Informatics, 20, 3, 818–828.
+[19] Alex Lence, Fabrice Extramiana, Ahmad Fall, Joe-Elie Salem, Jean-Daniel
+Zucker, and Edi Prifti. 2023. Automatic digitization of paper electrocardio-
+grams – a systematic review. Journal of Electrocardiology, 80, (Sept. 1, 2023),
+125–132. Retrieved June 26, 2023 from.
+[20] Fangyu Li, Hui Chang, Min Jiang, and Yihuan Su. 2022. A contrastive learning
+framework for ecg anomaly detection. In 2022 7th International Conference on
+Intelligent Computing and Signal Processing (ICSP). IEEE, 673–677.
+[21] Dominique Makowski, Tam Pham, Zen J. Lau, Jan C. Brammer, François
+Lespinasse, Hung Pham, Christopher Schölzel, and S. H. Annabel Chen. 2021.
+NeuroKit2: a python toolbox for neurophysiological signal processing.Behavior
+Research Methods, 53, 4, (Feb. 2021), 1689–1696.
+[22] Sharon Parmet, Cassio Lynm, and Richard M Glass. 2003. Electrocardiograms.
+JAMA, 289, 16, 2166–2166.
+[23] Edi Prifti et al. 2021. Deep learning analysis of electrocardiogram for risk
+prediction of drug-induced arrhythmias and diagnosis of long qt syndrome.
+European Heart Journal, 42, 38, 3948–3961.
+[24] Md Moklesur Rahman, Massimo Walter Rivolta, Fabio Badilini, and Roberto
+Sassi. 2023. A systematic survey of data augmentation of ecg signals for ai
+applications. Sensors, 23, 11, 5237.
+[25] Pentti M Rautaharju, James Warren, David Seale, and John Sherwood. 1981. Ex-
+ploitation of the redundancy of the conventional limb lead electrocardiograms
+for prolongation of the record length. Journal of Electrocardiology, 14, 1, 39–41.
+[26] Olaf Ronneberger, Philipp Fischer, and Thomas Brox. 2015. U-net: convolutional
+networks for biomedical image segmentation. In Medical Image Computing and
+Computer-Assisted Intervention–MICCAI 2015: 18th International Conference,
+Munich, Germany, October 5-9, 2015, Proceedings, Part III 18. Springer, 234–241.
+[27] Joe-Elie Salem, Marine Germain, Jean-Sébastien Hulot, Pascal Voiriot, Bruno
+Lebourgeois, Jean Waldura, David-Alexandre Tregouet, Beny Charbit, and
+Christian Funck-Brentano. 2017. Genome wide analysis of sotalol-induced ikr
+inhibition during ventricular repolarization, “generepol study”: lack of common
+variants with large effect sizes. PLoS One, 12, 8, e0181875.
+[28] Adolfo F Santamónica, Rocío Carratalá-Sáez, Yolanda Larriba, Alberto Pérez-
+Castellanos, and Cristina Rueda. 2024. Ecgminer: a flexible software for ac-
+curately digitizing ecg. Computer methods and programs in biomedicine, 246,
+108053.
+[29] Hyo-Chang Seo, Gi-Won Yoon, Segyeong Joo, and Gi-Byoung Nam. 2022. Multi-
+ple electrocardiogram generator with single-lead electrocardiogram. Computer
+Methods and Programs in Biomedicine, 221, 106858.
+[30] Reza Soleimani and Edgar Lobaton. 2022. Enhancing inference on physiological
+and kinematic periodic signals via phase-based interpretability and multi-task
+learning. Information, 13, 7, 326.
+[31] Pierre Taboulet. [n. d.] Dérivations frontales ou standards. https://www.e-card
+iogram.com/derivations-frontales-ou-standards/. Accessed: 2024-06-25. ().
+[32] Joske van der Zande et al. 2023. Using a smartwatch to record precordial
+electrocardiograms: a validation study. Sensors, 23, 5, 2555.
+[33] Patrick Wagner, Nils Strodthoff, Ralf-Dieter Bousseljot, Dieter Kreiseler, Fatima
+I Lunze, Wojciech Samek, and Tobias Schaeffter. 2020. Ptb-xl, a large publicly
+available electrocardiography dataset. Scientific data, 7, 1, 154.
+[34] Brian A Walker, Ahsan H Khandoker, and Jim Black. 2009. Low cost ecg monitor
+for developing countries. In 2009 International Conference on Intelligent Sensors,
+Sensor Networks and Information Processing (ISSNIP). IEEE, 195–199.
+[35] Lu-di Wang, Wei Zhou, Ying Xing, Na Liu, Mahmood Movahedipour, and Xiao-
+guang Zhou. 2019. A novel method based on convolutional neural networks for
+deriving standard 12-lead ecg from serial 3-lead ecg. Frontiers of Information
+Technology & Electronic Engineering, 20, 3, 405–413.
+[36] Fei Ye, Fei Zhu, Yuchen Fu, and Bairong Shen. 2019. Ecg generation with
+sequence generative adversarial nets optimized by policy gradient. IEEE Access,
+7, 159369–159378.
+[37] Chuanzhe Zhang, Jiahao Li, Shaopeng Pang, Fangzhou Xu, and Shuwang
+Zhou. 2022. A 12-lead ecg correlation network model exploring the inter-lead
+relationships. Europhysics Letters, 140, 3, 31001.
+[38] Zhidong Zhao and Yefei Zhang. 2018. Sqi quality evaluation mechanism of
+single-lead ecg signal based on simple heuristic fusion and fuzzy comprehensive
+evaluation. Frontiers in physiology, 9, 727.
+[39] Jianwei Zheng, Jianming Zhang, Sidy Danioko, Hai Yao, Hangyuan Guo, and
+Cyril Rakovski. 2020. A 12-lead electrocardiogram database for arrhythmia
+research covering more than 10,000 patients. Scientific data, 7, 1, 48.
+[40] Xue Zhou, Xin Zhu, Keijiro Nakamura, and Mahito Noro. 2021. Electrocardio-
+gram quality assessment with a generalized deep learning model assisted by
+conditional generative adversarial networks. Life, 11, 10, 1013.
+A Extended analysis of ECGrecover
+A.1 On the 𝛼 parameter
+In Section 2.2, we introduced the objective function in Equation (1)
+used to train our U-Net model:L =LMSE+𝛼·L Pearson. The fol-
+lowing section investigates the hyperparameter𝛼’s role in training
+the model. In particular, we consider𝛼∈{ 0, 0.1, 0.5, 1,∞}, where
+for𝛼 = 0,L≡L MSE and for𝛼 =∞,L≡L Pearson. We provide
+in Table 4 the results over the validation set of the five models
+trained with the different values of𝛼.
+When trained on the mean squared error alone, the model fo-
+cuses solely on minimizing the magnitude differences between the
+predicted and original ECG signals. Notably, while the results for
+RMSE and MAE remain consistent for the models with𝛼≤ 1, the
+values for the PCC and DTW present higher variability, with an
+improvement of 4.65% in terms of PCC for the model with𝛼 = 0.5
+w.r.t. the model with𝛼 = 0 and of 10.44% in terms of DTW. Inter-
+estingly, setting𝛼 =∞, resulted in the model performing well in
+terms of PCC but significantly worse across other metrics. This
+observation underscores the importance of employing a hybrid loss
+considering the ECG signal’s spatial and temporal aspects.
+For our testing phase, we chose𝛼 = 0.1 based on its performance
+during validation, showing promising results compared to𝛼 = 0
+and𝛼 = 1. However, a more detailed examination revealed𝛼 = 0.5
+to potentially offer better outcomes. This finding suggests that
+while𝛼 = 0.1 provided satisfactory results, a further optimization
+of𝛼 could enhance model performance.
+Table 4: ECGrecover performances for different values of 𝛼
+in Equation (1). We note∞ when we consider only the PCC
+𝛼 PCC RMSE MAE DTW
+0 0.86 0.19 0.15 18.10
+0.1 0.88 0.18 0.14 16.87
+0.5 0.90 0.18 0.14 16.21
+1 0.90 0.18 0.15 16.52
+∞ 0.91 0.43 0.39 95.37
+A.2 Loss evolution during training ( 𝛼 = 0.1)
+Figure 7 illustrates the progression of the total loss (in blue),LMSE
+(in orange), andLPearson (in green) across 100 epochs. The total
+loss decreased, driven by the decline of the MSE and Pearson terms.
+2368
+
+=== PAGE 11 ===
+ECGrecover: A Deep Learning Approach for Electrocardiogram Signal Completion KDD ’25, August 3–7, 2025, Toronto, ON, Canada
+The rapid reduction of the Pearson term during the early epochs in-
+dicates that the network quickly learns to align its predictions with
+the desired correlation structure. Meanwhile, the gradual decrease
+in MSE reflects ongoing improvements in reconstruction accuracy.
+Epoch
+Loss
+Figure 7: Evolution of the loss components during training
+A.3 Impact of ECGrecover on signal quality
+Table 5: Quality scores comparison between the original
+ECGs in the Generepol test set and reconstructed ones using
+ECGrecover. The SQIAvg-QRS [21] metric assigns a numerical
+quality score. The SQI Fuzzy [38] method assigns a qualitative
+assessment, we report the percentage of unacceptable ECGs.
+SQIAvg-QRS (↑) SQI Fuzzy % (↓)
+Config. Original ECGrecover Original ECGrecover
+C3 0.52±0.09 0.51±0.09 6±23 3±16
+C5 0.52±0.09 0.48±0.10 6±23 3±18
+CI 0.52±0.09 0.53±0.09 6±23 3±18
+In this section, we examine the impact of ECGrecover’s recon-
+struction on ECG quality. ECG recordings are frequently susceptible
+to noise from various sources, including loose electrode contacts, pa-
+tient movement, and muscle contractions. These factors can distort
+the waveform, complicating analysis and affecting diagnoses [11].
+Therefore, we aim to verify that the proposed method does not de-
+grade the quality of the reconstructed ECG compared to the original.
+It is important to note that our primary goal is not to improve ECG
+quality, as ECGrecover is not intended to be a denoising method.
+For this set of analyses, we measured the ECG quality with
+standard signal quality indicators (SQI): the SQIAvg-QRS [21] and
+SQIFuzzy [38] methods, which are both already implemented in the
+Python library Neurokit [21]. In Table 5, we present the results of
+the two metrics computed for both the original ECGs in the test set
+of the Generepol dataset and those reconstructed with ECGrecover.
+Regarding SQIAvg-QRS, the reconstructed signals maintain, on aver-
+age, the same quality as the original signals, with fluctuations of
+∼0.01 between the results of the two methods. In contrast, SQIFuzzy
+shows a lower proportion of ECGs labeled as unacceptable with
+ECGrecover compared to the original dataset.
+Finally, we would like to emphasize that the proposed method is
+not intended to be a denoising technique.
+A.4 Random masking
+To assess the performance of the proposed ECGrecover, we eval-
+uated its capability to reconstruct ECG signals when subjected to
+random masking. This entailed applying primers of random dura-
+tion to randomly chosen parts of each lead, a scenario less likely
+to occur in real-life settings. This evaluation aimed to verify if the
+model had learned the inter-lead relationships rather than memo-
+rizing specific reconstruction patterns. We call the configuration
+where an ECG subjected to such random masking, CRdm. To sim-
+ulate this scenario, a random start and end point between 0 and
+the total length of the signal were selected for each ECG lead. The
+segments outside the range between these two points were masked.
+The results, detailed in Table 6, indicate that ECGrecover outper-
+forms or reaches the same results as its competitors across various
+metrics, even in this challenging scenario.
+A.5 Demographic analysis
+Table 7 provides the summary of demographic information regard-
+ing the Generepol dataset. The study included 989 patients with no
+known heart problems. For a deeper explanation, we refer to [27].
+Table 7: Generepol: demographic information summary. We
+denote by𝜇 the mean;𝜎 the standard deviation;𝜂 the median.
+Metric Age Height (cm) Weight (kg)
+Data set: 989 patients (38% F and 62% M)
+𝜇±𝜎 28±10 170.5±8.9 65.6±10.1
+𝜂 24 170 65
+min 18 150 45
+max 60 197 103
+A.6 ECGrecover on PTB-XL [33]
+We present the evaluation of the proposed ECGrecover on PTB-
+XL [33]. Specifically, the dataset contains 21799 recordings from
+18869 patients of 10-second 12- lead ECGs sampled at 500Hz labeled
+as normal, myocardial infarction, ST/T change, conduction distur-
+bance and hypertrophy. In Figure 8, we show the summary of the
+results. In particular, we followed the same experimental setting as
+the one already described for the Generepol dataset in Section 3.1.To
+get an overall view, we also include the same representation of the
+results for the Generepol dataset in the figure.
+A.7 Experimental environment
+All methods were evaluated on a Tesla P100-PCIE-12GB. ECGre-
+cover processes each ECG in 4 ms with 6.1 million parameters and
+uses 0.6 GB of GPU memory. EKGAN (26.1 million parameters)
+and Pix2Pix (13.9 million parameters) process in 3 ms and consume
+around 11.5 GB each. For inference, ECGrecover takes 2 ms, while
+EKGAN and Pix2Pix take 1 ms.
+2369
+
+=== PAGE 12 ===
+KDD ’25, August 3–7, 2025, Toronto, ON, Canada Alex Lence et al.
+Table 6: Evaluation of ECGRecover and the competitors in terms of PCC and DTW (mean ±standard deviation) in case of C Rdm.
+PCC (↑) DTW (↓)
+Lead ECGrecover EKGAN [15] Pix2Pix [13] ECGrecover EKGAN [15] Pix2Pix [13]
+CRdm
+I 0.79±0.11 0.23±0.15 0.09±0.11 0.05±0.05 0.37±0.24 0.19±0.25
+II 0.84±0.11 0.26±0.16 0.34±0.17 0.03±0.05 0.13±0.06 0.10±0.09
+III 0.61±0.22 -0.02±0.21 0.10±0.19 0.08±0.07 0.46±0.5 0.36±0.24
+V1 0.82±0.17 0.22±0.13 0.18±0.14 0.03±0.06 0.09±0.08 0.08±0.07
+V6 0.88±0.09 0.24±0.14 0.29±0.14 0.02±0.04 0.12±0.06 0.10±0.07
+Figure 8: Comprehensive set of results on Generepol [27] and PTB-XL [33] datasets.
+2370
+
